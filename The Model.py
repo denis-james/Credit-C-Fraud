@@ -2,28 +2,32 @@
 # Submitted on:10-Dec-2022
 
 
-#importing all the necessary modules
+### Importing Modules
 import pandas as pd, numpy as np
 import matplotlib.pyplot as plt
 from sklearn.ensemble import IsolationForest,RandomForestClassifier
+from sklearn.model_selection import RandomizedSearchCV,GridSearchCV
 from sklearn import metrics
 
-# importing the dataset
-Transaction_Info=pd.read_csv("C://Users/denis/OneDrive/Desktop/DS Task/data-new/transactions_obf.csv")
-Reported_Frauds=pd.read_csv("C://Users/denis/OneDrive/Desktop/DS Task/data-new/labels_obf.csv")
+#Importing Datasets
+Transaction_Info=pd.read_csv("data-new/transactions_obf.csv")
+Reported_Frauds=pd.read_csv("data-new/labels_obf.csv")
+Transaction_Info['merchantCountry']
 
-# Splitting the time(YYYY-MM-DDThh:mm:ss) into two columns Date(YYYY-MM-DD) and Time(hh:mm:ss)
+#Splitting Date/Time Feature
 Transaction_Info["transactionDate"]=pd.to_datetime(Transaction_Info["transactionTime"]).dt.date
 Transaction_Info["transactionTime"]=pd.to_datetime(Transaction_Info["transactionTime"]).dt.time
+DateSplit=pd.DataFrame([str(i).split('-') for i in Transaction_Info.transactionDate],columns=['transactionYear','transactionMonth','transactionDay'])
+TimeSplit=pd.DataFrame([str(i).split(':')[0:3] for i in Transaction_Info.transactionTime],columns=['transactionHour','transactionMinute','transactionSecond'])
+Transaction_Info[['transactionHour','transactionMinute','transactionSecond']]=TimeSplit.astype(int)
+Transaction_Info[['transactionYear','transactionMonth','transactionDay']]=DateSplit.astype(int)
 
-# Assigns labels to each transaction: True if fraudulent, False otherwise
+#Defining Fraud Labels
+Transaction_Info['fraudLabel']=False
 for i in Reported_Frauds.eventId:
-    if i in list(Transaction_Info.eventId):
-        Transaction_Info.loc[Transaction_Info.eventId==i,'fraudLabel']=True
-Transaction_Info.loc[Transaction_Info.fraudLabel!=1,'fraudLabel']=False
+    Transaction_Info.loc[Transaction_Info.eventId==i,'fraudLabel']=True
 
-
-# Clearing all the noise in the data
+#Cleaning Data off of missing and noisy values
 Transaction_Info=Transaction_Info[Transaction_Info.posEntryMode!=79]
 Transaction_Info=Transaction_Info[Transaction_Info.transactionAmount>0]
 Transaction_Info.iloc[Transaction_Info.merchantZip.isnull(),6]='0'
@@ -35,31 +39,9 @@ Transaction_Info.iloc[Transaction_Info.merchantZip=="**",6]='0'
 Transaction_Info.iloc[Transaction_Info.merchantZip=="***",6]='0'
 
 
-Transaction_Info['FraudCommittedPreviously']=0
-Transaction_Info['FraudedPreviously']=0
-
-
+#Reseting Index after cleaning
 Transaction_Info=Transaction_Info.reset_index()
 del Transaction_Info['index']
-
-
-# this loop creates a new feature for every transaction in the dataset. It stores the number of times the payee account has been frauded prior to that transaction. (takes atmost 40 mins to execute)
-for i in range(len(Transaction_Info)):
-    temporary=Transaction_Info.iloc[0:i+1,[2,11]]
-    anothertemporary=temporary[temporary.accountNumber==list(temporary.accountNumber)[-1]]
-    Transaction_Info.iloc[i,13]=len(anothertemporary[anothertemporary.fraudLabel==1])
-    del temporary,anothertemporary
-
-    print((i/118621)*100,"%/ rewritten")
-
-
-# this loop creates a new feature for every transaction in the dataset. It stores the number of times the merchant account has been involved in a fraudulent transaction. (takes atmost 40 mins to execute)
-for i in range(len(Transaction_Info)):
-    temporary=Transaction_Info.iloc[0:i+1,[3,11]]
-    anothertemporary=temporary[temporary.merchantId==list(temporary.merchantId)[-1]]
-    Transaction_Info.iloc[i,12]=len(anothertemporary[anothertemporary.fraudLabel==1])
-    del temporary,anothertemporary
-    print((i/118621)*100,"%/ rewritten")
 
 
 # Assigns each Account Number, merchant Id and merchantZip a unique integer which makes it easier for the algorithm to work on.
@@ -71,46 +53,59 @@ Transaction_Info['merchantIdCodes']=MerchantIdCategories.codes
 Transaction_Info['MerchantZipCodes']=MerchantZip.codes
 
 
-# Splits the 'transactionTime' and 'transactionDate' column into 'transactionHour','transactionMinute','transactionYear','transactionMonth','transactionDay',
-# It is assumed, while training the model that the exact second at which the transaction was made would not make a difference on it's prediction. 
-DateSplit=pd.DataFrame([str(i).split('-',) for i in Transaction_Info.transactionDate],columns=['transactionYear','transactionMonth','transactionDay'])
-TimeSplit=pd.DataFrame([str(i).split(':')[0:2] for i in Transaction_Info.transactionTime],columns=['transactionHour','transactionMinute'])
-Transaction_Info[['transactionHour','transactionMinute']]=TimeSplit.astype(int)
-Transaction_Info[['transactionYear','transactionMonth','transactionDay']]=DateSplit.astype(int)
 
 
-
-#Splitting the clean dataset into Train and Test Dataset.
+# Splitting Dataset into False and True Test/Train Sets
 TrueTrainCases=Transaction_Info[Transaction_Info.fraudLabel==True].sample(800)
-TrueTestCases=pd.concat([Transaction_Info[Transaction_Info.fraudLabel==True],TrueTrainCases]).drop_duplicates(keep=False)
-FalseTrainCases=Transaction_Info[Transaction_Info.fraudLabel==False].sample(4800)
-FalseTestCases=pd.concat([Transaction_Info[Transaction_Info.fraudLabel==False],FalseTrainCases]).drop_duplicates(keep=False)
+TrueTestCases=pd.concat([Transaction_Info[Transaction_Info.fraudLabel==True],TrueTrainCases]).drop_duplicates(keep=False)#Transaction_Info-TrueTrainCases
+FalseTrainCases=Transaction_Info[Transaction_Info.fraudLabel==False].sample(1800)
+FalseTestCases=pd.concat([Transaction_Info[Transaction_Info.fraudLabel==False],FalseTrainCases]).drop_duplicates(keep=False)#Transaction_Info-FalseTrainCases
 
-
-
-# Preparing the Training Dataset
-TheTrainData=pd.concat([TrueTrainCases,FalseTrainCases])[['mcc','posEntryMode','transactionAmount','availableCash','FraudCommittedPreviously','FraudedPreviously','accountNumberCodes','merchantIdCodes','MerchantZipCodes','transactionHour','transactionMinute','transactionYear','transactionMonth','transactionDay','fraudLabel']]
+#Features that contribute to the analysis
+TrainingIndex=['mcc','posEntryMode','transactionAmount','availableCash','accountNumberCodes','merchantIdCodes','MerchantZipCodes','transactionHour','transactionMinute','transactionSecond','transactionYear','transactionMonth','transactionDay']
+TheTrainData=pd.concat([TrueTrainCases,FalseTrainCases])[TrainingIndex+['fraudLabel']]
 
 
 # Defining and training the model
 
-# model=IsolationForest(n_estimators=53,max_samples=1600,contamination=.142,max_features=10,verbose=1)
-model=RandomForestClassifier(n_estimators=37,criterion='entropy')
+#Defining the AI Model and  Gridsearch Parameters list 
+n_estimators=[i for i in range(5,20,4)]
+criterion=["gini", "entropy"]
+max_depth=[i for i in range(5,25,4)]
+min_samples_split=[i for i in range(5,30,4)]
+min_samples_leaf=[i for i in range(3,10)]
+max_features=['auto', 'sqrt']
+bootstrap=[False]
+Parameters= {
+    'n_estimators': n_estimators,
+    'max_features': max_features,
+    'max_depth': max_depth,
+    'min_samples_split': min_samples_split,
+    'min_samples_leaf': min_samples_leaf,
+    'bootstrap': bootstrap,
+    'criterion':criterion
+    }
+#n_jobs=,random_state=,verbose=,warm_start=,class_weight=,max_samples=}
+model=RandomForestClassifier()
+random_model=GridSearchCV(estimator=model,param_grid=Parameters,verbose=4)
 
 
-model.fit(TheTrainData[['mcc','posEntryMode','transactionAmount','availableCash','FraudCommittedPreviously','FraudedPreviously','accountNumberCodes','merchantIdCodes','MerchantZipCodes','transactionHour','transactionMinute','transactionYear','transactionMonth','transactionDay']],TheTrainData['fraudLabel'].astype('bool'))
-
+#Fitting the model onto the Train Data  
+random_model.fit(TheTrainData[TrainingIndex],TheTrainData['fraudLabel'])
+print(random_model.best_params_)
 # Preparing the Testing Dataset, none of who's entries coincide with that of the training Dataset.
 
-TheTestData=pd.concat([TrueTestCases,FalseTestCases.sample(100)])[['mcc','posEntryMode','transactionAmount','availableCash','FraudCommittedPreviously','FraudedPreviously','accountNumberCodes','merchantIdCodes','MerchantZipCodes','transactionHour','transactionMinute','transactionYear','transactionMonth','transactionDay','fraudLabel']]
+#Preparing Test Data
+TheTestData=pd.concat([TrueTestCases,FalseTestCases.sample(50)])[TrainingIndex+['fraudLabel']]
 
-# Predicting the Test Data Lables
-Predictions=pd.Series(model.predict(TheTestData[['mcc','posEntryMode','transactionAmount','availableCash','FraudCommittedPreviously','FraudedPreviously','accountNumberCodes','merchantIdCodes','MerchantZipCodes','transactionHour','transactionMinute','transactionYear','transactionMonth','transactionDay']]))
-Results=TheTestData.fraudLabel
-Results=Results.reset_index().fraudLabel
+#Test Predictions
+Predictions=pd.Series(random_model.predict(TheTrainData[TrainingIndex]))
+Results=TheTrainData.fraudLabel;    Results=Results.reset_index().fraudLabel
 print(Predictions)
 
-# Displaying the confusion Matrix.
+
+#Performance of the Classifier
 metrics.ConfusionMatrixDisplay(metrics.confusion_matrix(list(Results),list(Predictions)),display_labels=["False","True"]).plot(cmap='Greys')
 
-print(model.feature_importance)
+print(random_model.score(TheTrainData[TrainingIndex],TheTrainData.fraudLabel))
+print(random_model.score(TheTestData[TrainingIndex],TheTestData.fraudLabel))
