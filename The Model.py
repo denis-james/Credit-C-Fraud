@@ -1,5 +1,4 @@
 # Denis James
-# Submitted on:10-Dec-2022
 
 
 ### Importing Modules
@@ -57,7 +56,8 @@ Transaction_Info['MerchantZipCodes']=MerchantZip.codes
 
 # Splitting Dataset into False and True Test/Train Sets
 TrueTrainCases=Transaction_Info[Transaction_Info.fraudLabel==True].sample(800)
-TrueTestCases=pd.concat([Transaction_Info[Transaction_Info.fraudLabel==True],TrueTrainCases]).drop_duplicates(keep=False)#Transaction_Info-TrueTrainCases
+All_Other_True_Cases=pd.concat([Transaction_Info[Transaction_Info.fraudLabel==True],TrueTrainCases]).drop_duplicates(keep=False)#Transaction_Info-TrueTrainCases
+TrueTestCases=pd.concat([All_Other_True_Cases,TrueTrainCases.sample(50)])
 FalseTrainCases=Transaction_Info[Transaction_Info.fraudLabel==False].sample(1800)
 FalseTestCases=pd.concat([Transaction_Info[Transaction_Info.fraudLabel==False],FalseTrainCases]).drop_duplicates(keep=False)#Transaction_Info-FalseTrainCases
 
@@ -96,16 +96,43 @@ print(random_model.best_params_)
 # Preparing the Testing Dataset, none of who's entries coincide with that of the training Dataset.
 
 #Preparing Test Data
-TheTestData=pd.concat([TrueTestCases,FalseTestCases.sample(50)])[TrainingIndex+['fraudLabel']]
+TheTestData=pd.concat([TrueTestCases,FalseTestCases.sample(100)])[TrainingIndex+['fraudLabel']]
 
 #Test Predictions
-Predictions=pd.Series(random_model.predict(TheTrainData[TrainingIndex]))
-Results=TheTrainData.fraudLabel;    Results=Results.reset_index().fraudLabel
+
+Testing_On_Train_Data=pd.concat([TrueTrainCases,FalseTrainCases.sample(800)])[TrainingIndex+['fraudLabel']]
+Predictions=pd.Series(random_model.predict(Testing_On_Train_Data[TrainingIndex]))
+Results=Testing_On_Train_Data.fraudLabel;    Results=Results.reset_index().fraudLabel
+print(Predictions)
+
+#Performance of the Classifier on Training Data
+metrics.ConfusionMatrixDisplay(metrics.confusion_matrix(list(Results),list(Predictions)),display_labels=["Legitimate","Fraudulent"]).plot(cmap='Greys')
+
+
+#Test Predictions
+Predictions=pd.Series(random_model.predict(TheTestData[TrainingIndex]))
+Results=TheTestData.fraudLabel;    Results=Results.reset_index().fraudLabel
 print(Predictions)
 
 
-#Performance of the Classifier
-metrics.ConfusionMatrixDisplay(metrics.confusion_matrix(list(Results),list(Predictions)),display_labels=["False","True"]).plot(cmap='Greys')
+#Performance of the Classifier on Test Data
+metrics.ConfusionMatrixDisplay(metrics.confusion_matrix(list(Results),list(Predictions)),display_labels=["Legitimate","Fraudulent"]).plot(cmap='Greys')
 
 print(random_model.score(TheTrainData[TrainingIndex],TheTrainData.fraudLabel))
 print(random_model.score(TheTestData[TrainingIndex],TheTestData.fraudLabel))
+
+
+weight_counts = {
+    'Legitimate':[sum(Transaction_Info.fraudLabel==False)*100/len(Transaction_Info)],
+    'Fraudulent':[sum(Transaction_Info.fraudLabel==True)*100/len(Transaction_Info)]
+}
+
+fig, ax = plt.subplots(figsize=(8,1))
+ax.barh('Data',weight_counts['Legitimate'],label='Legitimate',left=weight_counts['Fraudulent'],color='green')
+
+ax.barh('Data',weight_counts['Fraudulent'],label='Fraudulent',left=0,color='red')
+
+ax.set_title("True/False Comparison")
+ax.legend(loc="upper right")
+
+plt.show()
