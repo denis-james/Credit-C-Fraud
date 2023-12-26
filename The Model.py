@@ -118,9 +118,16 @@ print(Predictions)
 #Performance of the Classifier on Test Data
 metrics.ConfusionMatrixDisplay(metrics.confusion_matrix(list(Results),list(Predictions)),display_labels=["Legitimate","Fraudulent"]).plot(cmap='Greys')
 
-print(random_model.score(TheTrainData[TrainingIndex],TheTrainData.fraudLabel))
-print(random_model.score(TheTestData[TrainingIndex],TheTestData.fraudLabel))
+Train_Accuracy=random_model.score(Testing_On_Train_Data[TrainingIndex],Testing_On_Train_Data.fraudLabel)
+Test_Accuracy=random_model.score(TheTestData[TrainingIndex],TheTestData.fraudLabel)
 
+fig,ax=plt.subplots()
+bar1=ax.bar('Test',Test_Accuracy*100)
+ax.bar_label(bar1)
+bar2=ax.bar('Train',Train_Accuracy*100)
+ax.bar_label(bar2)
+ax.set_ylabel('Accuracy (%)')
+ax.set_title('Results After Training')
 
 weight_counts = {
     'Legitimate':[sum(Transaction_Info.fraudLabel==False)*100/len(Transaction_Info)],
@@ -132,7 +139,7 @@ ax.barh('Data',weight_counts['Legitimate'],label='Legitimate',left=weight_counts
 
 ax.barh('Data',weight_counts['Fraudulent'],label='Fraudulent',left=0,color='red')
 
-ax.set_title("True/False Comparison")
+ax.set_title("Class Proportion")
 ax.legend(loc="upper right")
 
 plt.show()
